@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import sys
 
-USAGE = "usage: jev-loop <run|calibrate|serve|pause|resume|validate-symbol|explain-split> [options]"
+USAGE = "usage: jev-loop <run|calibrate|serve|publish|pause|resume|validate-symbol|explain-split> [options]"
 
 def _validate_symbol(argv: list[str]) -> int:
     from .assets import UnknownSymbolError, resolve_symbol
@@ -57,6 +57,10 @@ def main() -> int:
         from . import serve
 
         return serve.main(rest)
+    if command == "publish":
+        from . import publish
+
+        return publish.main(rest)
     if command in ("pause", "resume"):
         from . import control
         from .loop import LOG_DIR

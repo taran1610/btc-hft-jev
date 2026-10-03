@@ -28,9 +28,16 @@ found" because Vercel saw `pyproject.toml` and `jevloop/serve.py`'s `Handler`
 but that class is a local `127.0.0.1` file server.
 
 The deploy entrypoint is now `jevloop.vercel_app:app` in `pyproject.toml`.
-That serves `/` and `/wall.html` only. Start/Stop is refused. `/latest.json`
-is empty unless you set `LATEST_JSON_URL` in the Vercel project to a public
-JSON feed your local loop publishes.
+That serves `/` and `/wall.html` only. Start/Stop is refused.
+
+Live ticks for friends: keep the loop running locally, then publish the feed:
+
+```bash
+uv run python -m jevloop publish --forever
+```
+
+That overwrites the public gist in `JEV_FEED_GIST_ID`. The Vercel project
+needs `LATEST_GIST_ID` set to the same id (already wired for this install).
 
 ```toml
 [tool.vercel]
