@@ -17,16 +17,42 @@ from __future__ import annotations
 import math
 import os
 import random
+import socket
 import threading
 import time
 from dataclasses import dataclass
 
 try:
     import requests
+    from requests.adapters import HTTPAdapter
 except ImportError as exc:  # pragma: no cover
     raise SystemExit(
         "The 'requests' package is required. Run: uv pip install requests"
     ) from exc
+
+# Windows often spends ~1s on a dead IPv6 path before falling back to IPv4.
+# That shows up as 900–1200ms Jev spikes. Pin the Jev session to IPv4.
+try:
+    import urllib3.util.connection as _urllib3_cn
+
+    _urllib3_cn.allowed_gai_family = lambda: socket.AF_INET  # type: ignore[method-assign]
+except Exception:
+    pass
+
+_SESSION = requests.Session()
+_SESSION.headers["Connection"] = "keep-alive"
+_ADAPTER = HTTPAdapter(pool_connections=4, pool_maxsize=4, max_retries=0)
+_SESSION.mount("https://", _ADAPTER)
+_SESSION.mount("http://", _ADAPTER)
+try:
+    _SESSION.get_adapter("https://").init_poolmanager(
+        connections=4,
+        maxsize=4,
+        block=False,
+        socket_options=[(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)],
+    )
+except Exception:
+    pass
 
 TYPESAFE_DIRECT_URL = "https://api.typesafe.ai/v1/systemone"
 GATEWAY_URL = "https://ai-gateway.vercel.sh/typesafe/v1/systemone"
@@ -53,6 +79,21 @@ class RateLimited(DecisionClientError):
     """429, or any error whose text says the request rate is too high
     (the gateway's "access frequency is too high")."""
 
+def _http_post(url: str, headers: dict, body: dict, timeout: float):
+    """One shared keep-alive session so TLS is not renegotiated every tick."""
+    return _SESSION.post(url, headers=headers, json=body, timeout=timeout)
+
+
+def warmup(url: str) -> None:
+    """Open the TLS socket before the first real battery so tick 1 is not cold."""
+    try:
+        host = url.split("/", 3)
+        origin = f"{host[0]}//{host[2]}/" if len(host) > 2 else url
+        _SESSION.get(origin, timeout=2.0)
+    except Exception:
+        pass
+
+
 def _is_rate_limit(status: int, text: str) -> bool:
     t = (text or "").lower()
     return status == 429 or "frequency" in t or "rate limit" in t or "too many requests" in t
@@ -68,8 +109,8 @@ def _post_with_retry(url: str, headers: dict, body: dict, timeout: float) -> dic
                 "block deadline exceeded before a request could be sent"
             )
         try:
-            resp = requests.post(
-                url, headers=headers, json=body, timeout=min(remaining, timeout)
+            resp = _http_post(
+                url, headers=headers, body=body, timeout=min(remaining, timeout)
             )
         except requests.RequestException as exc:
             last_exc = exc
@@ -126,6 +167,7 @@ class TypeSafeDirectClient(BaseDecisionClient):
     def __init__(self, api_key: str, model: str = "jev-latest"):
         super().__init__(name="TypeSafe direct", model=model)
         self._api_key = api_key
+        warmup(TYPESAFE_DIRECT_URL)
 
     def ask(self, state: dict, questions: dict, timeout: float) -> tuple[dict, dict]:
         t0 = time.monotonic()
@@ -149,6 +191,7 @@ class GatewayClient(BaseDecisionClient):
     def __init__(self, api_key: str, model: str = "typesafe-ai/jev"):
         super().__init__(name="Vercel AI Gateway", model=model)
         self._api_key = api_key
+        warmup(GATEWAY_URL)
 
     def ask(self, state: dict, questions: dict, timeout: float) -> tuple[dict, dict]:
         t0 = time.monotonic()

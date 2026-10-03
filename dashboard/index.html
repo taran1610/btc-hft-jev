@@ -664,6 +664,31 @@
         return (t.skew || 0) < 0 ? "sell" : "buy"; // quoting with no leg: colour by skew direction
       }
 
+      function lastJevMs(ticks) {
+        for (let i = ticks.length - 1; i >= 0; i--) {
+          if (ticks[i].latency_ms != null) return ticks[i].latency_ms;
+        }
+        return null;
+      }
+
+      function formatMs(t, ticks) {
+        const fresh = t.latency_ms != null ? t.latency_ms : lastJevMs(ticks);
+        const msTxt = fresh != null ? Math.round(fresh) + " ms" : null;
+        if (t.late || t.action === "HOLD_LATE") {
+          return msTxt ? msTxt + " · late" : "late";
+        }
+        if (t.jev_reused || (t.latency_ms == null && t.judgment_age_s != null)) {
+          const age =
+            t.judgment_age_s != null ? Math.round(t.judgment_age_s) + "s" : "";
+          return msTxt
+            ? msTxt + (age ? " · reused " + age : " · reused")
+            : age
+              ? "reused " + age
+              : "reused";
+        }
+        return msTxt || "—";
+      }
+
       // Start / Stop. The state lives in ~/.jev-loop/control.json, so it
       // survives a refresh; the loop reads it before every order.
       const ctlToken =
@@ -763,9 +788,7 @@
         $("px").textContent = t.mid
           ? t.mid.toLocaleString(undefined, { maximumFractionDigits: 1 })
           : "0.00";
-        $("lastms").textContent = t.latency_ms
-          ? Math.round(t.latency_ms) + " ms"
-          : "late";
+        $("lastms").textContent = formatMs(t, ticks);
         $("avgms").textContent = stats.avg_ms
           ? Math.round(stats.avg_ms) + " ms"
           : "—";
@@ -794,12 +817,11 @@
           ? "PAUSED · no new orders"
           : t.action + (t.direction_leg ? ` (${t.direction_leg} leg)` : "");
         a.className = "act " + side;
-        $("actms").textContent = t.latency_ms
-          ? Math.round(t.latency_ms) + " ms"
-          : "late";
+        $("actms").textContent = formatMs(t, ticks);
         $("actreason").textContent = t.action_reason || "";
 
         $("snap").innerHTML =
+          `<span class=k>jev</span><span><b>${formatMs(t, ticks)}</b></span>` +
           `<span class=k>route</span><span><b>${t.route || "—"}</b></span>` +
           `<span class=k>regime</span><span><b>${t.regime || "—"} ${t.regime_conf ? Math.round(t.regime_conf * 100) + "%" : ""}</b></span>` +
           `<span class=k>direction</span><span><b>${t.direction || "—"}</b></span>` +
@@ -863,7 +885,7 @@
         const fill = t.fill_qty
           ? `${t.fill_qty} @ ${t.fill_price ? t.fill_price.toLocaleString(undefined, { maximumFractionDigits: 1 }) : "—"}`
           : "—";
-        tr.innerHTML = `<td>${t.tick}</td><td class="a">${label}</td><td>${t.quote_environment_conf != null ? "conf " + t.quote_environment_conf.toFixed(2) : ""}</td><td>${t.latency_ms ? Math.round(t.latency_ms) + "ms" : "late"}</td><td>${fill}</td><td>paper</td>`;
+        tr.innerHTML = `<td>${t.tick}</td><td class="a">${label}</td><td>${t.quote_environment_conf != null ? "conf " + t.quote_environment_conf.toFixed(2) : ""}</td><td>${formatMs(t, ticks)}</td><td>${fill}</td><td>paper</td>`;
         feed.prepend(tr);
         while (feed.children.length > 16) feed.lastChild.remove();
 

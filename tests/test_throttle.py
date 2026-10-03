@@ -51,7 +51,7 @@ def test_old_judgment_is_not_reused():
 @pytest.mark.parametrize("status,text", [(429, ""), (400, "access frequency is too high")])
 def test_rate_limit_responses_raise_without_retrying(status, text):
     resp = mock.Mock(status_code=status, text=text)
-    with mock.patch.object(jc.requests, "post", return_value=resp) as post:
+    with mock.patch.object(jc, "_http_post", return_value=resp) as post:
         with pytest.raises(RateLimited):
             jc._post_with_retry("https://x", {}, {}, timeout=2.0)
     assert post.call_count == 1  # retrying a rate limit only adds requests

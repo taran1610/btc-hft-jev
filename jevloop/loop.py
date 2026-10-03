@@ -265,9 +265,11 @@ def run(
     # One shared client for the whole run, and one throttle in front of it.
     client = resolve_decision_client(mock=mock)
     throttle = JevThrottle()
+    jev_cap = float(os.environ.get("JEV_MAX_CALL_S") or 0.40)
     print(
         f"jev calls: at most one every {throttle.min_interval_s:g}s (sooner on a material "
-        f"change, never under {throttle.min_gap_s:g}s), last judgment reused in between"
+        f"change, never under {throttle.min_gap_s:g}s), last judgment reused in between, "
+        f"hard cap {jev_cap*1000:.0f}ms"
     )
     if client.name == "MOCK" and not dry_execution:
         # A mock answers with random numbers. Random numbers never place
@@ -517,7 +519,10 @@ def run(
             # called only when the throttle says so, and every other tick
             # reuses the last judgment (see "Jev call rate" in README.md).
             elapsed = time.monotonic() - tick_start
-            budget = max(0.05, deadline_s - elapsed - 0.15)
+            # Cap the Jev wait so a gateway spike (1s+) cannot stall the tick.
+            # Keep-alive + IPv4 usually lands 250–390ms; 400ms is the hard stop.
+            jev_cap = float(os.environ.get("JEV_MAX_CALL_S") or 0.40)
+            budget = max(0.05, min(jev_cap, deadline_s - elapsed - 0.15))
             decision_late = False
             answers = None
             meta = {"model": None, "latency_ms": None, "route": None}
@@ -549,7 +554,12 @@ def run(
                 except DecisionClientError as exc:
                     msg = str(exc)
                     if "deadline" in msg:
-                        decision_late = True
+                        # Prefer the last judgment over HOLD_LATE. A 400ms
+                        # cap is a latency budget, not a stale-state signal.
+                        print(
+                            f"tick {block} | Jev over {budget*1000:.0f}ms budget, "
+                            f"reusing the last judgment"
+                        )
                     else:
                         jev_down = True
                         print(f"tick {block} | decision client error: {exc}")
