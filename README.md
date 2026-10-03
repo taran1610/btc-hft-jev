@@ -20,6 +20,23 @@ uv run python -m jevloop run --paper --ticks 30 --symbol BTC/USD
 uv run python -m jevloop serve   # open http://127.0.0.1:8765
 ```
 
+## Vercel (read-only dashboard)
+
+The trading loop cannot run on Vercel (no always-on process, no Alpaca
+session). Importing this repo there used to fail with "No python entrypoint
+found" because Vercel saw `pyproject.toml` and `jevloop/serve.py`'s `Handler`
+but that class is a local `127.0.0.1` file server.
+
+The deploy entrypoint is now `jevloop.vercel_app:app` in `pyproject.toml`.
+That serves `/` and `/wall.html` only. Start/Stop is refused. `/latest.json`
+is empty unless you set `LATEST_JSON_URL` in the Vercel project to a public
+JSON feed your local loop publishes.
+
+```toml
+[tool.vercel]
+entrypoint = "jevloop.vercel_app:app"
+```
+
 ## Start and Stop
 
 The dashboard has a **Start** and a **Stop** button, and shows **RUNNING**
